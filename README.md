@@ -984,4 +984,16 @@ The project also highlights an important lesson for healthcare machine learning:
 
 Metrics such as recall, precision, F1-score, specificity, ROC-AUC, and the consequences of false-negative predictions must also be considered.
 
+## 👥 Authors
+
+- Your Name - Karthikeyan C, Aspiring Data Scientist
+
+## 🙏 Acknowledgments
+
+- Streamlit community
+
+## 📞 Contact
+
+Project Link: [https://github.com/KarthikeyanC95/Multiple_Disease_Prediction](https://github.com/KarthikeyanC95/Multiple_Disease_Prediction)
+
 ---
