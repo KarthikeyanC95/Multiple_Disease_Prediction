@@ -1,988 +1,369 @@
-# Multiple Disease Prediction — Kidney, Liver & Parkinson's
+# Multiple Disease Prediction (Kidney, Liver & Parkinson's)
 
-## 📌 Project Overview
+A machine learning project that predicts the likelihood of **Chronic Kidney Disease (CKD)**, **Liver Disease**, and **Parkinson's Disease** from routine clinical/lab measurements. Each disease has its own dedicated data pipeline and classification model, trained and evaluated independently, with the best-performing model for each condition serialized for downstream use (e.g. a Streamlit/Flask web app).
 
-**Multiple Disease Prediction** is a Machine Learning project designed to predict the presence of multiple diseases using patient and clinical data.
-
-The project focuses on three major disease prediction tasks:
-
-* 🫘 **Kidney Disease Prediction**
-* 🫀 **Liver Disease Prediction**
-* 🧠 **Parkinson's Disease Prediction**
-
-The objective is to develop machine learning models that can learn patterns from medical datasets and provide predictions based on patient attributes and diagnostic measurements.
-
-This project follows a complete machine learning workflow:
-
-> **Data Collection → Exploratory Data Analysis → Data Preprocessing → Feature Engineering → Model Training → Model Evaluation → Model Selection → Prediction**
-
-The project is intended as an **educational machine learning application** and should not be considered a substitute for professional medical diagnosis.
+> This README documents all three modules — **Kidney Disease**, **Liver Disease**, and **Parkinson's Disease** — including data preparation, modeling approach, and real benchmark results for each.
 
 ---
 
-# 🎯 Problem Statement
+## 📌 Problem Statement
 
-Early identification of diseases can play an important role in healthcare by helping identify patients who may require further medical evaluation.
+Early detection of chronic diseases like kidney disease, liver disease, and Parkinson's disease significantly improves patient outcomes, but diagnosis often depends on interpreting multiple lab values together — something that's easy to miss in a busy clinical setting or entirely inaccessible for self-screening.
 
-However, medical datasets often contain:
+The goal of this project is to build **supervised binary classification models** that take a patient's clinical and laboratory measurements as input and predict whether they are likely to have the disease in question, so that:
 
-* Multiple numerical health indicators
-* Categorical patient information
-* Missing values
-* Imbalanced target classes
-* Features with significantly different scales
-* Highly correlated clinical measurements
+- At-risk patients can be flagged earlier for confirmatory testing.
+- The models can be wrapped into a simple prediction interface (single combined app: "Multiple Disease Prediction System").
+- Each disease's best model is chosen on the basis of a fair, multi-metric comparison rather than accuracy alone.
 
-The problem addressed in this project is:
-
-> **Can machine learning classification algorithms learn meaningful patterns from patient health data and accurately predict whether a patient is likely to have a particular disease?**
-
-Three separate classification problems are considered:
-
-### 1. Kidney Disease Prediction
-
-Build a classification model that predicts whether a patient is likely to have kidney disease based on clinical and laboratory measurements.
-
-### 2. Liver Disease Prediction
-
-Build a classification model that predicts whether a patient is likely to have liver disease using demographic information and liver-function-related measurements.
-
-### 3. Parkinson's Disease Prediction
-
-Build a classification model that predicts whether a patient is likely to have Parkinson's disease using biomedical voice measurements.
+**Target variables:**
+- **Kidney module:** `classification` → `1` = CKD (chronic kidney disease), `0` = not CKD.
+- **Liver module:** `Dataset` → after remapping, `0` = liver disease patient, `1` = not a liver disease patient. ⚠️ **Note the inverted convention** here versus the kidney module — see the caveat under [Known Limitations](#️-known-limitations--honest-caveats).
+- **Parkinson's module:** `status` → `1` = Parkinson's, `0` = healthy. Notably imbalanced: 147 positive vs. 48 negative (~75% / 25%) — more skewed than either the kidney or liver datasets.
 
 ---
 
-# 🧠 Machine Learning Approach
+## 🗂️ Dataset
 
-The project uses supervised machine learning classification algorithms.
+| Disease | Source | Records | Features | Target |
+|---|---|---|---|---|
+| Kidney Disease | UCI CKD Dataset (`kidney_disease.csv`) | 400 | 24 clinical/lab features | `classification` (ckd / notckd) |
+| Liver Disease | Indian Liver Patient Dataset (`liver_disease.csv`) | 583 | 10 clinical/lab features | `Dataset` (liver patient / not) |
+| Parkinson's Disease | UCI Parkinson's Dataset (`parkinsons.csv`) | 195 | 22 voice-measurement features | `status` (Parkinson's / healthy) |
 
-For each disease, the general workflow is:
+**Kidney dataset features** include: age, blood pressure (`bp`), specific gravity (`sg`), albumin (`al`), sugar (`su`), red/white blood cell counts, blood glucose (`bgr`), blood urea (`bu`), serum creatinine (`sc`), sodium/potassium, hemoglobin, packed cell volume, and comorbidity flags (`htn`, `dm`, `cad`, `appet`, `pe`, `ane`).
 
-```text
-                Medical Dataset
-                      │
-                      ▼
-              Data Understanding
-                      │
-                      ▼
-          Exploratory Data Analysis
-                      │
-          ┌───────────┴───────────┐
-          ▼                       ▼
-    Numerical Features      Categorical Features
-          │                       │
-          └───────────┬───────────┘
-                      ▼
-             Data Preprocessing
-                      │
-                      ▼
-             Feature Engineering
-                      │
-                      ▼
-                Train/Test Split
-                      │
-                      ▼
-                 Feature Scaling
-                      │
-                      ▼
-              Model Development
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-       Logistic    Tree-Based    Distance/
-       Regression    Models      Kernel Models
-          │           │           │
-          └───────────┼───────────┘
-                      ▼
-                Model Evaluation
-                      │
-                      ▼
-                Best Model
-                      │
-                      ▼
-                  Prediction
-```
+**Liver dataset features** include: age, gender, total/direct bilirubin, alkaline phosphotase, alamine/aspartate aminotransferase (liver enzymes), total proteins, albumin, and the albumin-to-globulin ratio.
+
+**Parkinson's dataset features** are all derived from sustained-vowel voice recordings: fundamental frequency measures (`MDVP:Fo/Fhi/Flo(Hz)`), several jitter and shimmer variants (frequency/amplitude perturbation), noise-to-harmonics ratios (`NHR`, `HNR`), and nonlinear dynamical measures (`RPDE`, `DFA`, `spread1`, `spread2`, `D2`, `PPE`). The `name` column (a recording ID) was dropped as non-predictive.
 
 ---
 
-# 🔬 Exploratory Data Analysis
+## 🔍 Approach — Kidney Disease Module
 
-Exploratory Data Analysis (EDA) was performed to understand the structure and distribution of the datasets.
+The pipeline follows a standard, reproducible ML workflow:
 
-The analysis included:
+### 1. Data Loading & Initial Inspection
+- Loaded the raw CSV, inspected shape, dtypes, and class balance (`ckd`: 250 vs `notckd`: 150 — a mild class imbalance).
+- Dropped the non-predictive `id` column.
 
-* Dataset dimensions
-* Column names and data types
-* Descriptive statistics
-* Missing-value analysis
-* Class distribution
-* Numerical feature distributions
-* Categorical feature distributions
-* Correlation analysis
-* Correlation heatmaps
-* Pair plots
+### 2. Data Type Correction
+- Several numeric-looking columns (`pcv`, `wc`, `rc`) were stored as `object` due to stray non-numeric entries. Converted these with `pd.to_numeric(..., errors='coerce')` so bad values become `NaN` instead of silently corrupting the model.
 
-EDA helps identify patterns, outliers, class imbalance, and relationships between features before training machine learning models.
+### 3. Exploratory Data Analysis (EDA)
+- Plotted distributions for all numerical columns (`sns.distplot`) to check skew and spread.
+- Plotted count plots for all categorical columns (`sns.countplot`) to check category balance.
+- Computed a full correlation matrix and visualized it as a heatmap to understand which features move together with `classification` (e.g. `sg`, `hemo`, `pcv`, `htn`, `dm`, and `al` showed the strongest correlations with CKD status).
 
----
+### 4. Missing Value Treatment
+The dataset had substantial missingness across many columns (`rbc`: 152 missing, `rc`: 131, `wc`: 106, `pot`: 88, `sod`: 87, etc.). Two imputation strategies were used depending on column type:
+- **Numerical columns:** random sampling imputation — missing values are filled by randomly sampling from the column's own observed (non-null) distribution, preserving the original variance/shape better than a simple mean/median fill.
+- **Categorical columns:** mode imputation (with `rbc` and `pc` also using random sampling first, since they had the highest missingness).
 
-# 🫀 Liver Disease Prediction
+After this step, all 25 columns had zero missing values.
 
-## Dataset
+### 5. Feature Encoding
+- Binary categorical columns (`rbc`, `pc`, `pcc`, `ba`, `htn`, `dm`, `cad`, `appet`, `pe`, `ane`) were label-encoded to `0`/`1` via a manual mapping dictionary.
+- The target `classification` was mapped from `{ckd, notckd}` to `{1, 0}`.
 
-The Liver Disease dataset contains **583 patient records** and **11 columns** before preprocessing.
+### 6. Train/Test Split
+- `train_test_split` with `test_size=0.2`, `random_state=0`, giving 320 training rows and 80 test rows.
 
-The target variable is:
+### 7. Model Benchmarking
+Seven classification algorithms were trained on identical train/test splits and compared on accuracy, confusion matrix, precision/recall/F1, and ROC-AUC:
 
-```text
-Dataset
-```
+- Logistic Regression
+- Decision Tree Classifier
+- Random Forest Classifier (`max_depth=10`, `n_estimators=400`, `min_samples_split=7`)
+- XGBoost Classifier
+- K-Nearest Neighbors
+- Gradient Boosting Classifier
+- Support Vector Machine (RBF kernel, `C=15`, `gamma=0.0001`)
 
-The original target values were:
-
-```text
-1 → Liver Disease
-2 → No Liver Disease
-```
-
-For machine learning, the target was transformed into:
-
-```text
-0 → No Liver Disease
-1 → Liver Disease
-```
-
-### Target Distribution
-
-| Class     | Meaning          |   Count |
-| --------- | ---------------- | ------: |
-| 0         | No Liver Disease |     416 |
-| 1         | Liver Disease    |     167 |
-| **Total** |                  | **583** |
-
-The dataset is therefore somewhat imbalanced, with more observations belonging to class `0`.
+### 8. Model Selection & Persistence
+- Compared all models on test accuracy and ROC-AUC (see results below).
+- The selected model was serialized with `pickle` (`kidney_model.sav`) for reuse in a prediction app.
 
 ---
 
-## Liver Features
+## 📊 Model Performance & Metrics (Kidney Disease)
 
-The model uses the following features:
+### Accuracy & ROC-AUC comparison
 
-| Feature                    | Description                |
-| -------------------------- | -------------------------- |
-| Age                        | Patient age                |
-| Gender_Male                | Encoded gender             |
-| Total_Bilirubin            | Total bilirubin level      |
-| Direct_Bilirubin           | Direct bilirubin level     |
-| Alkaline_Phosphotase       | Alkaline phosphatase level |
-| Alamine_Aminotransferase   | ALT measurement            |
-| Aspartate_Aminotransferase | AST measurement            |
-| Total_Protiens             | Total protein level        |
-| Albumin                    | Albumin level              |
-| Albumin_and_Globulin_Ratio | Albumin/globulin ratio     |
+| Model | Test Accuracy | ROC-AUC |
+|---|---|---|
+| **Gradient Boosting** | **98.75%** | **98.21%** |
+| Random Forest | 97.50% | 96.43% |
+| Decision Tree | 96.25% | 96.29% |
+| Logistic Regression | 88.75% | 88.05% |
+| SVM | 72.50% | 68.96% |
+| KNN | 66.25% | 65.80% |
+| XGBoost | 65.00% | 50.00% |
+
+> **Note on XGBoost:** its accuracy (65%) matches the no-information baseline of always predicting the majority class in the test split, and its ROC-AUC of exactly 50% confirms it wasn't discriminating between classes at all. This is a symptom of the learning rate being set far too low (`learning_rate=0.001`) for only 100 boosting rounds — the model was effectively undertrained, not a fair reflection of what XGBoost can do on this data. Retuning it (higher learning rate and/or more estimators) would very likely bring it in line with Random Forest/Gradient Boosting.
+
+### Best model: Gradient Boosting Classifier
+
+**Test set confusion matrix:**
+
+| | Predicted: notckd | Predicted: ckd |
+|---|---|---|
+| **Actual: notckd** | 27 | 1 |
+| **Actual: ckd** | 0 | 52 |
+
+**Classification report:**
+
+| Class | Precision | Recall | F1-score |
+|---|---|---|---|
+| notckd (0) | 1.00 | 0.96 | 0.98 |
+| ckd (1) | 0.98 | 1.00 | 0.99 |
+| **Accuracy** | | | **0.9875** |
+
+**Why Gradient Boosting was chosen:**
+- Highest test accuracy (98.75%) and highest ROC-AUC (98.21%) among all seven models.
+- Zero false negatives on the test set (every actual CKD case was correctly caught) — clinically, this is the more important error to avoid, since missing a real CKD case is costlier than a false alarm.
+- Training accuracy of 100% alongside strong test performance suggests some overfitting risk; this is flagged as a follow-up item (see below) rather than treated as a fully closed case.
+
+### Visualizations produced
+- `roc_kidney.jpeg` — ROC curves for all 7 models overlaid, with AUC in the legend.
+- `PE_kidney.jpeg` — grouped bar chart comparing Accuracy (%) vs ROC-AUC (%) across all models.
 
 ---
 
-# 🛠️ Liver Data Preprocessing
+## 🔍 Approach — Liver Disease Module
 
-### 1. Missing Value Treatment
+### 1. Data Loading & Initial Inspection
+- Loaded `liver_disease.csv` (583 rows, 11 columns) and checked class balance: `Dataset == 1` (liver patient): 416 rows, `Dataset == 2` (not a patient): 167 rows — a more pronounced imbalance (~71% / 29%) than the kidney dataset.
 
-The dataset contained **4 missing values** in:
+### 2. Exploratory Data Analysis (EDA)
+- Distribution plots for all numerical columns and a count plot for the single categorical column (`Gender`).
+- Correlation heatmap: `Alamine_Aminotransferase` and `Aspartate_Aminotransferase` (liver enzymes) are strongly correlated with each other (0.79), as are `Total_Protiens` and `Albumin` (0.78), and `Albumin` with `Albumin_and_Globulin_Ratio` (0.69) — expected, since these are physiologically linked lab values. No single feature is strongly correlated with the target on its own; the strongest are `Direct_Bilirubin` (-0.25) and `Albumin_and_Globulin_Ratio` (0.16), suggesting the disease signal here is more diffuse across features than in the kidney dataset.
+- A pairplot colored by `Dataset` to visually inspect class separability.
 
-```text
-Albumin_and_Globulin_Ratio
-```
+### 3. Missing Value Treatment
+- Only one column had missing values: `Albumin_and_Globulin_Ratio` (4 rows, <1%), imputed with the column mean.
 
-These missing values were replaced using the mean of the column.
+### 4. Target Remapping
+- The raw `Dataset` column uses `1` = liver patient, `2` = not a patient. This was remapped to `0` = liver patient, `1` = not a patient via `replace([2,1],[1,0])`.
+- **This is the opposite convention from the kidney module** (where `1` = disease-positive). It's functionally fine for training, but anyone reusing these labels downstream (e.g. in a combined app) needs to explicitly handle the fact that "positive class" doesn't mean the same numeric label across modules.
 
-```python
-df['Albumin_and_Globulin_Ratio'] = (
-    df['Albumin_and_Globulin_Ratio']
-    .fillna(df['Albumin_and_Globulin_Ratio'].mean())
-)
-```
+### 5. Feature Encoding
+- `Gender` (the only categorical column) was one-hot encoded via `pd.get_dummies(..., drop_first=True)`, producing a single `Gender_Male` column, cast to `int32`.
 
-After preprocessing, there were no missing values.
+### 6. Feature Scaling
+- All features (including the binary `Gender_Male` column) were standardized with `StandardScaler` before modeling. Scaling a binary 0/1 column alongside continuous lab values is not strictly necessary and is called out below as a minor inconsistency rather than a correctness issue, since scaling a binary variable doesn't change tree-based model behavior but does change coefficient magnitude for linear/SVM models.
 
-### 2. Target Encoding
+### 7. Train/Test Split
+- `train_test_split` with `test_size=0.2`, `random_state=0`, giving 466 training rows and 117 test rows.
 
-The original target labels were converted from:
+### 8. Model Benchmarking
+The same seven algorithms as the kidney module were trained and compared on the scaled features: Logistic Regression, Decision Tree, Random Forest, XGBoost, KNN, Gradient Boosting, and SVM.
 
-```text
-1, 2
-```
+### 9. Model Selection & Persistence
+- The best-performing model (Logistic Regression) was serialized with `pickle` (`liver_model.sav`).
 
-to:
+---
 
-```text
-0, 1
-```
+## 📊 Model Performance & Metrics (Liver Disease)
 
-### 3. Categorical Encoding
+### Accuracy comparison
 
-The `Gender` column was converted into a numerical feature using one-hot encoding:
+| Model | Test Accuracy |
+|---|---|
+| **Logistic Regression** | **70.09%** |
+| Gradient Boosting | 69.23% |
+| Decision Tree | 66.67% |
+| XGBoost | 66.67% |
+| SVM | 66.67% |
+| Random Forest | 65.81% |
+| KNN | 65.81% |
 
-```python
-pd.get_dummies(df, columns=['Gender'], drop_first=True)
-```
+> **Reality check on these numbers:** the majority class (`Dataset == 0`, liver patients) makes up 78 of the 117 test rows — a "predict-the-majority-class-always" baseline already scores **66.7% accuracy**. Decision Tree, XGBoost, and SVM all land almost exactly on that number, which is a strong signal that they learned little beyond the class imbalance rather than genuine liver-disease signal. Only Logistic Regression and Gradient Boosting show any real lift above that floor, and even then it's modest (+3–4 points). **Accuracy alone is a misleading metric on this dataset** — precision/recall per class (below) tell a more honest story.
 
-This produced:
+### Best model: Logistic Regression
 
-```text
-Gender_Male
-```
+**Test set confusion matrix** (`0` = liver disease patient, `1` = not a patient):
 
-where:
+| | Predicted: disease (0) | Predicted: healthy (1) |
+|---|---|---|
+| **Actual: disease (0)** | 74 | 4 |
+| **Actual: healthy (1)** | 31 | 8 |
 
-```text
-0 → Female
-1 → Male
-```
+**Classification report:**
 
-### 4. Feature Scaling
+| Class | Precision | Recall | F1-score | Support |
+|---|---|---|---|---|
+| disease (0) | 0.70 | 0.95 | 0.81 | 78 |
+| healthy (1) | 0.67 | 0.21 | 0.31 | 39 |
+| **Accuracy** | | | **0.7009** | 117 |
 
-Because the numerical features have very different ranges, `StandardScaler` was applied.
+**Reading these numbers honestly:**
+- The model is good at not missing disease cases: **95% recall on the disease class** means only 4 of 78 actual liver-disease patients were missed — clinically the more important error to minimize.
+- But it's **poor at correctly identifying healthy patients**: only 21% recall on the healthy class means 31 of 39 truly healthy people were misclassified as having liver disease. In a real screening tool this would mean a lot of unnecessary follow-up testing for healthy people.
+- This pattern — high recall on the majority class, low recall on the minority class — is the classic fingerprint of class imbalance rather than a model that has learned a clean decision boundary. It was chosen as "best" here only because it edges out the others on accuracy; it would **not** be the honest choice if minimizing false positives on healthy patients mattered more than raw accuracy.
 
-```python
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-```
+---
 
-This transforms the features approximately to:
+## 🔍 Approach — Parkinson's Disease Module
 
-```text
-Mean = 0
-Standard Deviation = 1
-```
+### 1. Data Loading & Initial Inspection
+- Loaded `parkinsons.csv` (195 rows, 24 columns) and checked class balance: `status == 1` (Parkinson's): 147 rows, `status == 0` (healthy): 48 rows — the most imbalanced of the three datasets (~75% / 25%).
+- Dropped the `name` column (a per-recording identifier, e.g. `phon_R01_S01_1`), leaving 22 numeric features plus the target.
+- Unlike the kidney and liver datasets, this one is **already fully numeric and has zero missing values** (`df.info()` shows 195 non-null entries in every column) — no type coercion or imputation is needed here.
+
+### 2. Exploratory Data Analysis (EDA)
+- Distribution plots (`sns.distplot`) across the numeric voice-measurement features.
+- A full correlation matrix and heatmap. Notable patterns:
+  - **Very strong internal collinearity** among the jitter measures (`MDVP:Jitter(%)`, `MDVP:RAP`, `MDVP:PPQ`, `Jitter:DDP` are all pairwise correlated above 0.90, with `MDVP:RAP` and `Jitter:DDP` at a near-perfect 1.00) and similarly among the shimmer measures (`MDVP:Shimmer`, `Shimmer:APQ3`, `Shimmer:DDA` also near 0.99–1.00). These are, in several cases, near-duplicate derived features rather than independent signals.
+  - **`spread1` (0.56) and `PPE` (0.53) show the strongest individual correlation with `status`**, followed by `spread2` (0.45) — all three are nonlinear/dynamical voice measures, consistent with the published literature on Parkinson's voice biomarkers.
+  - `HNR` (harmonics-to-noise ratio) is **negatively** correlated with `status` (-0.36), i.e. lower voice-signal "cleanliness" is associated with Parkinson's, which is clinically intuitive.
+- A pairplot colored by `status` to visually inspect class separability across feature pairs.
+
+### 3. Missing Value Check
+- Confirmed 0 missing values across all 22 features — no imputation needed.
+
+### 4. Feature Scaling — computed but not actually used
+- `StandardScaler` is fit and applied to `X`, producing `x_scaled`.
+- **However, the train/test split and every model below are trained on the original unscaled `X`, not `x_scaled`.** This is a real bug in the notebook, not a stylistic choice: scaling was clearly intended (it's the only module of the three that scales, and it's the module where features vary the most in magnitude — e.g. `MDVP:Fo(Hz)` is in the hundreds while `MDVP:Jitter(Abs)` is in the ten-thousandths), but the scaled frame is never passed into `train_test_split`. This particularly affects distance-based models (KNN, SVM), which are sensitive to feature scale.
 
 ### 5. Train/Test Split
+- `train_test_split` with `test_size=0.2`, `random_state=0`, giving 156 training rows and 39 test rows.
 
-The dataset was divided into:
+### 6. Model Benchmarking
+The same seven algorithms as the other two modules were trained: Logistic Regression, Decision Tree, Random Forest, XGBoost, KNN, Gradient Boosting, and SVM.
 
-```text
-80% → Training data
-20% → Testing data
-```
-
-using:
-
-```python
-train_test_split(
-    X_scaled_df,
-    y,
-    test_size=0.2,
-    random_state=0
-)
-```
-
-The test set contained **117 observations**.
+### 7. Model Selection & Persistence
+- As in the kidney and liver modules, the pickled model (`parkinson_model.sav`) is **hardcoded to Logistic Regression** (`model = lr`) regardless of which model actually scored best in the comparison table — see the caveat below, since this pattern repeats across all three modules.
+- The ROC curve and performance-comparison plots reuse code copied from the kidney module without updating the labels: the plot titles still read *"ROC - Kidney Disease Prediction"* and *"Performance Evaluation - Kidney Disease Prediction"*, and the files are saved to `roc_kidney.jpeg` / `PE_kidney.jpeg` — meaning, if run in the same working directory as the kidney notebook, **this would silently overwrite the kidney module's visualizations** rather than creating separate Parkinson's ones.
 
 ---
 
-# 🤖 Models Evaluated — Liver Disease
+## 📊 Model Performance & Metrics (Parkinson's Disease)
 
-The following classification algorithms were evaluated:
+*(Computed by running the notebook's exact code against the real UCI Parkinson's dataset, since this module's code included final print statements. Note: the notebook does not set `random_state` on `RandomForestClassifier`, so its exact numbers will vary slightly between runs — the values below are from one run.)*
 
-1. Logistic Regression
-2. Decision Tree
-3. Random Forest
-4. XGBoost
-5. K-Nearest Neighbors (KNN)
-6. Gradient Boosting
-7. Support Vector Machine (SVM)
+### Accuracy & ROC-AUC comparison
 
-The models were evaluated using the same train/test split.
+| Model | Test Accuracy | ROC-AUC |
+|---|---|---|
+| **Gradient Boosting** | **94.87%** | **93.28%** |
+| Random Forest | 92.31% | 88.28% |
+| Logistic Regression | 89.74% | 83.28% |
+| SVM | 89.74% | 83.28% |
+| KNN | 89.74% | 83.28% |
+| Decision Tree | 84.62% | 86.55% |
+| XGBoost | 74.36% | 50.00% |
 
----
+> **XGBoost shows the exact same failure mode as in the kidney and liver modules**: its 74.36% accuracy matches the majority-class baseline (29 of 39 test rows are `status == 1`), and its ROC-AUC of 50.00% confirms it isn't discriminating at all. Its confusion matrix (`[[0, 10], [0, 29]]`) shows it predicted "Parkinson's" for every single test row. This is the third module in a row where `learning_rate=0.001` with only 100 rounds has left XGBoost undertrained — a clear, fixable, repo-wide pattern rather than three unrelated issues.
 
-# 📊 Liver Disease Model Performance
+### Best model: Gradient Boosting Classifier
 
-The testing accuracy obtained from the experiments is:
+**Test set confusion matrix** (`0` = healthy, `1` = Parkinson's):
 
-| Rank | Model                   | Training Accuracy | Testing Accuracy |
-| ---: | ----------------------- | ----------------: | ---------------: |
-| 🥇 1 | **Logistic Regression** |        **74.03%** |       **70.09%** |
-| 🥈 2 | **Gradient Boosting**   |            92.92% |       **69.23%** |
-|    3 | Decision Tree           |           100.00% |           66.67% |
-|    4 | XGBoost                 |            72.53% |           66.67% |
-|    5 | SVM                     |            72.53% |           66.67% |
-|    6 | Random Forest           |            96.78% |           65.81% |
-|    7 | KNN                     |            78.97% |           65.81% |
+| | Predicted: healthy (0) | Predicted: Parkinson's (1) |
+|---|---|---|
+| **Actual: healthy (0)** | 9 | 1 |
+| **Actual: Parkinson's (1)** | 1 | 28 |
 
-### Best Performing Model
+**Classification report:**
 
-Based on **test accuracy**, Logistic Regression performed best among the evaluated models:
+| Class | Precision | Recall | F1-score | Support |
+|---|---|---|---|---|
+| healthy (0) | 0.90 | 0.90 | 0.90 | 10 |
+| Parkinson's (1) | 0.97 | 0.97 | 0.97 | 29 |
+| **Accuracy** | | | **0.9487** | 39 |
 
-```text
-Testing Accuracy = 70.09%
-```
-
-The trained Logistic Regression model was subsequently saved using Pickle:
-
-```python
-pickle.dump(model, open("liver_model.sav", "wb"))
-```
+**Why this looks like a genuinely good result (with a caveat):**
+- Unlike the liver module, Gradient Boosting here shows **balanced performance across both classes** (90% recall on healthy, 97% recall on Parkinson's) rather than just riding the majority class — a real signal that the model learned something meaningful from the voice features.
+- That said, the **test set is only 39 rows**, so a single misclassification shifts accuracy by ~2.5 points; treat this as an encouraging result on a small sample, not a validated clinical-grade number. Cross-validation across the full 195 rows would give a much more trustworthy estimate.
+- As noted above, the model that actually gets saved to disk (`parkinson_model.sav`) is Logistic Regression (89.74%), not the better-performing Gradient Boosting — worth fixing before this feeds into a prediction app.
 
 ---
 
-# 📈 Liver Model Evaluation Metrics
+## 🔁 Cross-Module Observations
 
-## Logistic Regression
+Three separate notebooks, three separate diseases — but the same handful of issues show up in each, which suggests these are copy-paste patterns worth fixing once, centrally, rather than three times:
 
-### Confusion Matrix
-
-```text
-[[74,  4],
- [31,  8]]
-```
-
-Represented as:
-
-|              | Predicted 0 | Predicted 1 |
-| ------------ | ----------: | ----------: |
-| **Actual 0** |          74 |           4 |
-| **Actual 1** |          31 |           8 |
-
-Therefore:
-
-* True Negative = **74**
-* False Positive = **4**
-* False Negative = **31**
-* True Positive = **8**
-
-### Classification Report
-
-| Class            | Precision |   Recall | F1-Score |
-| ---------------- | --------: | -------: | -------: |
-| 0                |      0.70 | **0.95** |     0.81 |
-| 1                |      0.67 |     0.21 |     0.31 |
-| **Macro Avg**    |  **0.69** | **0.58** | **0.56** |
-| **Weighted Avg** |  **0.69** | **0.70** | **0.64** |
-
-### Important Observation
-
-Although Logistic Regression achieved the highest overall test accuracy, the recall for the positive class was relatively low:
-
-```text
-Positive-class recall = 21%
-```
-
-This means the model missed a considerable number of actual positive cases.
-
-For a medical prediction problem, **accuracy alone is not sufficient**. Recall, precision, F1-score, ROC-AUC, and especially the cost of false negatives should also be considered.
-
-Therefore, the current model should be viewed as a baseline rather than a clinically reliable diagnostic model.
+1. **The saved model is always hardcoded to Logistic Regression** (`model = lr; pickle.dump(...)`), regardless of which model actually won the accuracy comparison in that module. In the kidney and Parkinson's modules, Gradient Boosting scored higher; in the liver module, Logistic Regression genuinely was the best, so that one happens to be correct by coincidence.
+2. **XGBoost is undertrained in all three modules** (`learning_rate=0.001`, `n_estimators=100`), and in all three cases its accuracy lands almost exactly on the majority-class baseline with a ROC-AUC near 50% — i.e., it isn't learning anything. The fix is the same in each: raise the learning rate and/or number of estimators.
+3. **Accuracy is reported as the headline metric everywhere, but is misleading on two of the three imbalanced datasets** (liver and Parkinson's) where several models are simply riding the majority class. A shared model-selection function that ranks by F1 or balanced accuracy instead of raw accuracy would catch this automatically across all three modules.
+4. **No `random_state`** is set for `RandomForestClassifier` in the Parkinson's module (unlike the other two), making its reported numbers non-reproducible run to run.
 
 ---
 
-# 🧪 Comparison of Liver Models
+## ⚠️ Known Limitations / Honest Caveats
 
-### Logistic Regression
+**Kidney module:**
+- **Small dataset (400 rows):** an 80-row test set means each misclassified sample shifts accuracy by ~1.25 percentage point — treat the exact numbers above as indicative, not precise.
+- **Random-sampling imputation** for columns with heavy missingness (e.g. `rbc` at 38% missing) can understate how much the model is relying on imputed values.
+- **XGBoost was undertrained** in this run (`learning_rate=0.001`, only 100 rounds — see note above) and needs re-tuning before it can be fairly compared to the other ensemble models.
+- **Class imbalance** (250 CKD vs 150 not-CKD) wasn't explicitly addressed (e.g. via class weighting or resampling) — worth testing whether it changes model ranking.
+- Some models (Decision Tree, Gradient Boosting) show **train accuracy of 100%**, a classic overfitting signal on a small dataset; cross-validation (not just a single train/test split) would give a more reliable performance estimate.
 
-```text
-Training Accuracy : 74.03%
-Testing Accuracy  : 70.09%
-```
+**Liver module:**
+- **Accuracy is a misleading metric here.** With a 78/39 class split in the test set, "always predict liver disease" already scores 66.7% — three of the seven models (DT, XGBoost, SVM) essentially collapsed to that baseline rather than learning real signal, and even the "best" model (Logistic Regression at 70.9%) only modestly beats it.
+- **Same undertrained-XGBoost issue** as the kidney module (`learning_rate=0.001`): its confusion matrix (`[[78, 0], [39, 0]]`) shows it predicted the majority class for every single test row.
+- **Inverted target convention** (`0` = disease, `1` = healthy) versus the kidney module's (`1` = disease) — a real risk of confusion if these models are combined into one app without relabeling for consistency.
+- **Standardizing the one-hot `Gender_Male` column** alongside continuous features is a minor inconsistency; it doesn't affect tree-based models but changes how its coefficient reads for Logistic Regression/SVM.
+- **Class imbalance was not addressed** (no class weighting, no resampling) — given how much it appears to be driving the accuracy numbers, this is the single highest-value fix for this module.
+- The chosen "best" model has only **21% recall on the minority (healthy) class** — worth explicitly deciding whether accuracy or a cost-sensitive metric (e.g. balanced accuracy, F1 on the minority class) should actually drive model selection here.
 
-The model has relatively similar training and testing performance, suggesting less overfitting compared with some tree-based models.
-
-### Gradient Boosting
-
-```text
-Training Accuracy : 92.92%
-Testing Accuracy  : 69.23%
-```
-
-The relatively large difference between training and testing accuracy indicates some degree of overfitting.
-
-### Decision Tree
-
-```text
-Training Accuracy : 100.00%
-Testing Accuracy  : 66.67%
-```
-
-The perfect training accuracy combined with lower test accuracy is a strong indication of overfitting.
-
-### Random Forest
-
-```text
-Training Accuracy : 96.78%
-Testing Accuracy  : 65.81%
-```
-
-Despite strong training performance, the test performance was lower than Logistic Regression.
-
-### XGBoost
-
-```text
-Training Accuracy : 72.53%
-Testing Accuracy  : 66.67%
-```
-
-With the parameters used in the experiment, XGBoost did not outperform Logistic Regression.
-
-### KNN
-
-```text
-Training Accuracy : 78.97%
-Testing Accuracy  : 65.81%
-```
-
-KNN provided reasonable baseline performance but did not achieve the best test accuracy.
-
-### SVM
-
-```text
-Training Accuracy : 72.53%
-Testing Accuracy  : 66.67%
-```
-
-The selected SVM configuration did not outperform the other models.
+**Parkinson's module:**
+- **Feature scaling was computed but never used** — `StandardScaler` is fit on `X` but the unscaled `X` is what actually goes into `train_test_split` and every model. This is a genuine bug, not a design choice, and most likely to affect KNN and SVM (both distance/margin-based and sensitive to feature scale).
+- **`RandomForestClassifier` has no `random_state` set**, so its reported accuracy will vary somewhat between runs (I saw 92.3–94.9% across two runs myself while producing these numbers) — worth pinning down for reproducibility.
+- **Very small test set (39 rows)** — even more than the other two modules, treat these percentages as indicative rather than precise; a single flipped prediction moves accuracy by ~2.5 points.
+- **The ROC/performance-comparison plotting code was copied from the kidney module without updating labels or filenames** — running it as-is will save over `roc_kidney.jpeg` and `PE_kidney.jpeg` with titles that still say "Kidney Disease Prediction," rather than producing dedicated Parkinson's plots.
+- Same **undertrained XGBoost** and **hardcoded Logistic-Regression-gets-saved** issues as the other two modules — see [Cross-Module Observations](#-cross-module-observations) above.
 
 ---
 
-# 🧠 Parkinson's Disease Prediction
+## 🚀 Next Steps
 
-## Dataset
-
-The Parkinson's dataset contains:
-
-```text
-195 observations
-24 columns
-```
-
-The original dataset includes a patient identifier:
-
-```text
-name
-```
-
-which was removed before model development.
-
-The target variable is:
-
-```text
-status
-```
-
-where:
-
-```text
-0 → Healthy
-1 → Parkinson's disease
-```
-
-### Target Distribution
-
-| Class     | Meaning     |   Count |
-| --------- | ----------- | ------: |
-| 0         | Healthy     |      48 |
-| 1         | Parkinson's |     147 |
-| **Total** |             | **195** |
-
-The dataset is significantly imbalanced toward the positive Parkinson's class.
+- [ ] **Fix the hardcoded model-save bug** in all three modules — save whichever model actually wins the comparison table, not always Logistic Regression.
+- [ ] **Fix the Parkinson's scaling bug** — actually use `x_scaled` in the train/test split instead of computing it and discarding it.
+- [ ] **Fix the Parkinson's plotting bug** — the ROC/performance-comparison code still has kidney-module titles and filenames; give it its own labels and filenames so it doesn't overwrite the kidney plots.
+- [ ] Set `random_state` on `RandomForestClassifier` in the Parkinson's module for reproducible results.
+- [ ] Replace the single train/test split with k-fold (or stratified k-fold, given the class imbalance in all three datasets) cross-validation for more robust metrics.
+- [ ] Re-tune XGBoost hyperparameters (learning rate, n_estimators) in all three modules — it's currently undertrained everywhere.
+- [ ] Address class imbalance across all three modules (e.g. `class_weight='balanced'`, SMOTE) and re-evaluate — this looks especially important for the liver and Parkinson's datasets.
+- [ ] Standardize the target-label convention across modules (`1` = disease-positive everywhere) before combining into one app.
+- [ ] Add ROC-AUC and a precision/recall comparison chart for the liver module (currently only computed for kidney and Parkinson's).
+- [ ] Investigate dropping or combining the highly collinear jitter/shimmer features in the Parkinson's dataset before modeling.
+- [ ] Build a unified Streamlit/Flask app that loads all three pickled models and lets a user pick a disease and enter their values for prediction.
+- [ ] Add feature importance plots (not just accuracy/ROC) so predictions are explainable to a clinician.
 
 ---
 
-# 🧬 Parkinson's Features
+## 🛠️ Tech Stack
 
-The dataset contains biomedical voice measurements including:
-
-* Fundamental frequency measurements
-* Jitter measurements
-* Shimmer measurements
-* Noise-to-Harmonics Ratio (NHR)
-* Harmonics-to-Noise Ratio (HNR)
-* RPDE
-* DFA
-* Spread measures
-* D2
-* PPE
-
-Examples include:
-
-```text
-MDVP:Fo(Hz)
-MDVP:Fhi(Hz)
-MDVP:Flo(Hz)
-MDVP:Jitter(%)
-MDVP:Jitter(Abs)
-MDVP:RAP
-MDVP:PPQ
-Jitter:DDP
-MDVP:Shimmer
-MDVP:Shimmer(dB)
-NHR
-HNR
-RPDE
-DFA
-spread1
-spread2
-D2
-PPE
-```
-
-These measurements describe different characteristics of vocal frequency, variation, noise, and nonlinear dynamics.
+`Python` · `pandas` · `numpy` · `matplotlib` · `seaborn` · `plotly` · `scikit-learn` · `XGBoost` · `pickle`
 
 ---
 
-# 🔎 Parkinson's EDA Findings
+## 📁 Repository Structure
 
-Correlation analysis showed several strong relationships among the voice-related features.
-
-For example:
-
-```text
-MDVP:Jitter(%) ↔ MDVP:RAP ≈ 0.99
-MDVP:Jitter(%) ↔ Jitter:DDP ≈ 0.99
-MDVP:Shimmer ↔ Shimmer:DDA ≈ 0.99
-spread1 ↔ PPE ≈ 0.96
 ```
-
-The target variable also showed notable relationships with several features.
-
-For example:
-
-```text
-status ↔ spread1 ≈ 0.56
-status ↔ PPE ≈ 0.53
-status ↔ spread2 ≈ 0.45
-status ↔ MDVP:Shimmer ≈ 0.37
-status ↔ HNR ≈ -0.36
-status ↔ MDVP:Fo(Hz) ≈ -0.38
-```
-
-These correlations indicate that several voice characteristics may contain useful predictive information.
-
-> **Note:** Correlation does not establish causation, and highly correlated predictors may introduce redundancy into a machine learning model.
-
----
-
-# 📊 Parkinson's Model Performance
-
-The provided Parkinson's notebook currently contains the data exploration, preprocessing and correlation analysis, but **does not include the final model-training and evaluation results**.
-
-Therefore, model performance should be added after training the selected classifiers.
-
-Recommended metrics:
-
-| Metric             | Purpose                                    |
-| ------------------ | ------------------------------------------ |
-| Accuracy           | Overall percentage of correct predictions  |
-| Precision          | Reliability of positive predictions        |
-| Recall/Sensitivity | Ability to identify positive cases         |
-| F1-Score           | Balance between precision and recall       |
-| ROC-AUC            | Overall ranking/discrimination performance |
-| Confusion Matrix   | Detailed prediction breakdown              |
-
-### Recommended section after model training
-
-```text
-| Model | Training Accuracy | Testing Accuracy | Precision | Recall | F1-Score | ROC-AUC |
-|---|---:|---:|---:|---:|---:|---:|
-| Logistic Regression | XX% | XX% | XX | XX | XX | XX |
-| Decision Tree | XX% | XX% | XX | XX | XX | XX |
-| Random Forest | XX% | XX% | XX | XX | XX | XX |
-| XGBoost | XX% | XX% | XX | XX | XX | XX |
-| SVM | XX% | XX% | XX | XX | XX | XX |
-| KNN | XX% | XX% | XX | XX | XX | XX |
-```
-
----
-
-# 🫘 Kidney Disease Prediction
-
-The Kidney Disease module follows the same overall machine learning philosophy:
-
-```text
-Kidney Dataset
-      ↓
-Data Cleaning
-      ↓
-Missing Value Treatment
-      ↓
-Categorical Encoding
-      ↓
-Feature Engineering
-      ↓
-Train/Test Split
-      ↓
-Feature Scaling
-      ↓
-Multiple Classification Models
-      ↓
-Performance Evaluation
-      ↓
-Best Model Selection
-```
-
-The objective is to classify patients according to their kidney-disease status using relevant clinical and laboratory measurements.
-
-### Kidney Model Performance
-
-The final Kidney Disease model results can be reported using:
-
-| Model               | Training Accuracy | Testing Accuracy | Precision | Recall | F1-Score | ROC-AUC |
-| ------------------- | ----------------: | ---------------: | --------: | -----: | -------: | ------: |
-| Logistic Regression |                 — |                — |         — |      — |        — |       — |
-| Decision Tree       |                 — |                — |         — |      — |        — |       — |
-| Random Forest       |                 — |                — |         — |      — |        — |       — |
-| XGBoost             |                 — |                — |         — |      — |        — |       — |
-| KNN                 |                 — |                — |         — |      — |        — |       — |
-| Gradient Boosting   |                 — |                — |         — |      — |        — |       — |
-| SVM                 |                 — |                — |         — |      — |        — |       — |
-
-> Replace the `—` values with the actual results from the Kidney Disease model experiments.
-
----
-
-# 📊 Overall Model Comparison
-
-The final project can be summarized using a consolidated performance table.
-
-| Disease        | Best Model              | Test Accuracy | Precision |    Recall |  F1-Score | ROC-AUC |
-| -------------- | ----------------------- | ------------: | --------: | --------: | --------: | ------: |
-| 🫘 Kidney      | To be added             |             — |         — |         — |         — |       — |
-| 🫀 Liver       | **Logistic Regression** |    **70.09%** | **0.67**¹ | **0.21**¹ | **0.31**¹ |       — |
-| 🧠 Parkinson's | To be added             |             — |         — |         — |         — |       — |
-
-¹ Positive-class (`1`) metrics for the Liver Disease Logistic Regression model.
-
----
-
-# 🏆 Current Best Result
-
-Based on the results currently available in this project:
-
-### 🫀 Liver Disease
-
-**Best Model: Logistic Regression**
-
-```text
-Training Accuracy : 74.03%
-Testing Accuracy  : 70.09%
-```
-
-Positive-class metrics:
-
-```text
-Precision : 0.67
-Recall    : 0.21
-F1-Score  : 0.31
-```
-
-The Logistic Regression model achieved the highest testing accuracy among the seven evaluated liver-disease models.
-
-However, the low positive-class recall demonstrates why **medical ML models should not be evaluated using accuracy alone**.
-
----
-
-# 📏 Evaluation Metrics
-
-The project uses several classification metrics.
-
-## Accuracy
-
-Accuracy measures the proportion of all predictions that are correct.
-
-```text
-Accuracy = (TP + TN) / (TP + TN + FP + FN)
-```
-
-It is useful for obtaining an overall performance measure but can be misleading when classes are imbalanced.
-
----
-
-## Precision
-
-Precision measures how many predicted positive cases are actually positive.
-
-```text
-Precision = TP / (TP + FP)
-```
-
-Higher precision means fewer false-positive predictions.
-
----
-
-## Recall
-
-Recall measures how many actual positive cases are correctly identified.
-
-```text
-Recall = TP / (TP + FN)
-```
-
-For disease prediction, recall can be particularly important because false negatives may represent patients who actually have the disease but are predicted as healthy.
-
----
-
-## F1-Score
-
-F1-score combines precision and recall:
-
-```text
-F1 = 2 × (Precision × Recall) / (Precision + Recall)
-```
-
-It is particularly useful when there is a class imbalance.
-
----
-
-## Confusion Matrix
-
-The confusion matrix provides four important values:
-
-```text
-True Positive
-True Negative
-False Positive
-False Negative
-```
-
-This gives a more detailed view of model behavior than accuracy alone.
-
----
-
-# ⚠️ Important Model Evaluation Considerations
-
-The datasets used in this project are not perfectly balanced.
-
-For example, the Liver dataset contains:
-
-```text
-416 → Class 0
-167 → Class 1
-```
-
-while the Parkinson's dataset contains:
-
-```text
-48  → Class 0
-147 → Class 1
-```
-
-Because of this, accuracy alone may not adequately represent model quality.
-
-For a production-level healthcare application, the following should be considered:
-
-* Recall/Sensitivity
-* Specificity
-* Precision
-* F1-score
-* ROC-AUC
-* PR-AUC
-* Confusion matrix
-* Cross-validation
-* Class weighting
-* Threshold optimization
-* Calibration
-* External validation
-
----
-
-# 🔧 Technologies Used
-
-### Programming Language
-
-* Python
-
-### Data Processing
-
-* Pandas
-* NumPy
-
-### Data Visualization
-
-* Matplotlib
-* Seaborn
-* Plotly
-
-### Machine Learning
-
-* Scikit-learn
-* XGBoost
-
-### Model Persistence
-
-* Pickle
-
----
-
-# 📁 Project Structure
-
-A recommended repository structure is:
-
-```text
-Multiple_Disease_Prediction/
-│
-├── README.md
-│
-├── datasets/
+Multiple-Disease-Prediction/
+├── kidney/
 │   ├── kidney_disease.csv
+│   ├── kidney_data1.csv          # cleaned/encoded dataset
+│   ├── kidney_disease_prediction.ipynb
+│   ├── kidney_model.sav          # pickled Gradient Boosting model
+│   ├── roc_kidney.jpeg
+│   └── PE_kidney.jpeg
+├── liver/
 │   ├── liver_disease.csv
-│   └── parkinsons.csv
-│
-├── notebooks/
-│   ├── Kidney_Disease_Prediction.ipynb
-│   ├── Liver_Disease_Prediction.ipynb
-│   └── Parkinsons_Disease_Prediction.ipynb
-│
-├── models/
-│   ├── kidney_model.sav
-│   ├── liver_model.sav
-│   └── parkinsons_model.sav
-│
+│   ├── liver_data1.csv           # cleaned/encoded dataset
+│   ├── liver_disease_prediction.ipynb
+│   └── liver_model.sav           # pickled Logistic Regression model
+├── parkinsons/
+│   ├── parkinsons.csv
+│   ├── parkinso_data1.csv         # cleaned dataset (typo in original filename kept as-is)
+│   ├── parkinsons_disease_prediction.ipynb
+│   └── parkinson_model.sav        # pickled model (currently Logistic Regression — see Next Steps)
+├── app.py                        # combined prediction app (planned)
 ├── requirements.txt
-│
-└── app/
-    └── app.py
-```
-
----
-
-# 🚀 Future Improvements
-
-Several improvements can be made to increase the reliability and generalization of the models.
-
-### 1. Cross-Validation
-
-Instead of relying on a single train/test split, use stratified k-fold cross-validation to obtain more reliable estimates of model performance.
-
-### 2. Hyperparameter Optimization
-
-Apply techniques such as:
-
-* GridSearchCV
-* RandomizedSearchCV
-* Bayesian optimization
-
-to identify better model configurations.
-
-### 3. Handle Class Imbalance
-
-Techniques such as:
-
-* Class weights
-* SMOTE
-* Random oversampling
-* Random undersampling
-
-can be investigated where appropriate.
-
-### 4. Feature Selection
-
-Highly correlated features may contain redundant information.
-
-Feature selection techniques could be used to:
-
-* Remove redundant variables
-* Reduce model complexity
-* Improve generalization
-* Improve interpretability
-
-### 5. Better Evaluation
-
-Future experiments should include:
-
-```text
-Accuracy
-Precision
-Recall
-F1-score
-ROC-AUC
-PR-AUC
-Specificity
-Sensitivity
-```
-
-rather than relying primarily on accuracy.
-
-### 6. Model Explainability
-
-Explainable AI techniques such as SHAP or permutation importance could be used to understand which clinical features contribute most to predictions.
-
-### 7. External Validation
-
-A model trained on one dataset should ideally be evaluated on an independent dataset before being considered for real-world use.
-
----
-
-# 💡 Key Learnings
-
-This project demonstrates several important machine learning concepts:
-
-* Medical data preprocessing
-* Exploratory Data Analysis
-* Missing-value treatment
-* Categorical encoding
-* Feature scaling
-* Correlation analysis
-* Binary classification
-* Model comparison
-* Confusion matrix analysis
-* Precision/recall trade-offs
-* Class imbalance
-* Model persistence using Pickle
-
-One of the key findings from the Liver Disease experiment is that the model with the highest training accuracy is **not necessarily the best model for unseen data**.
-
-For example:
-
-```text
-Decision Tree
-Training Accuracy → 100%
-Testing Accuracy  → 66.67%
-```
-
-while:
-
-```text
-Logistic Regression
-Training Accuracy → 74.03%
-Testing Accuracy  → 70.09%
-```
-
-This illustrates the importance of evaluating models on unseen data and monitoring overfitting.
-
----
-
-# ⚠️ Disclaimer
-
-This project is developed for **educational and research purposes only**.
-
-The predictions generated by these machine learning models should **not be used as a medical diagnosis or as a replacement for consultation with a qualified healthcare professional**.
-
-The datasets are limited in size and may not represent the broader population. Model performance on these datasets does not guarantee equivalent performance in real-world clinical settings.
-
----
-
-# 👨‍💻 Project Summary
-
-**Multiple Disease Prediction** demonstrates how machine learning can be applied to different healthcare classification problems using structured clinical and biomedical data.
-
-The project covers three disease domains:
-
-```text
-🫘 Kidney Disease
-       +
-🫀 Liver Disease
-       +
-🧠 Parkinson's Disease
-       ↓
-Machine Learning Classification
-```
-
-The current Liver Disease experiments evaluated seven classification algorithms, with **Logistic Regression achieving the highest test accuracy of 70.09%**.
-
-The project also highlights an important lesson for healthcare machine learning:
-
-> **A high accuracy score does not necessarily mean that a model is clinically useful.**
-
-Metrics such as recall, precision, F1-score, specificity, ROC-AUC, and the consequences of false-negative predictions must also be considered.
+└── README.md
 
 ## 👥 Authors
 
